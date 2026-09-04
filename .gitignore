@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Environment / secrets
+.env
+.env.*
+*.local
+
+# npm lockfile (project uses bun.lock)
+package-lock.json
+
+# Editor / OS
+.DS_Store
+.vscode/
+*.log

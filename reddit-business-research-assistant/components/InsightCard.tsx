@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { FormattedText } from '../App';
+import { cleanText } from '../App';
 
 interface InsightCardProps {
   title: string;
@@ -21,12 +21,12 @@ const InsightCard: React.FC<InsightCardProps> = ({ title, items, icon }) => {
       </div>
       
       {items && items.length > 0 ? (
-        <ul className="space-y-4 flex-grow">
+        <ul className="space-y-5 flex-grow">
           {items.map((item, idx) => (
-            <li key={idx} className="flex items-start gap-3">
-              <span className="w-1.5 h-1.5 rounded-full bg-zinc-200 mt-2 flex-shrink-0 group-hover:bg-black transition-colors" />
-              <p className="text-zinc-700 text-[14px] md:text-[15px] leading-relaxed font-medium">
-                <FormattedText text={item} />
+            <li key={idx} className="flex items-start gap-3.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-zinc-300 mt-[9px] flex-shrink-0 group-hover:bg-black transition-colors" />
+              <p className="text-zinc-700 text-[15px] md:text-base leading-7 font-normal">
+                {cleanText(item)}
               </p>
             </li>
           ))}

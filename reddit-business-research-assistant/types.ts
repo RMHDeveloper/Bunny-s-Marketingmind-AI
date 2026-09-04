@@ -16,10 +16,30 @@ export interface RedditAnalysis {
   competitionLevel: string;
 }
 
+export interface ObjectionRebuttal {
+  objection: string;
+  rebuttal: string;
+}
+
+export interface LandingCopy {
+  headline: string;
+  subhead: string;
+}
+
+export interface MarketingAssets {
+  positioning: string;
+  adHooks: string[];
+  objectionRebuttals: ObjectionRebuttal[];
+  landingPage: LandingCopy[];
+  coldOpeners: string[];
+  contentIdeas: string[];
+}
+
 export interface AnalysisRecord {
   id: string;
   topic: string;
   country: string;
   timestamp: number;
   data: RedditAnalysis;
+  assets?: MarketingAssets | null;
 }
