@@ -6,18 +6,26 @@ import { RedditAnalysis, GroundingSource, MarketingAssets } from "../types";
 /*  Client                                                                     */
 /* -------------------------------------------------------------------------- */
 
+// Injected by Vite's `define` at build time (see vite.config.ts).
+declare const __GEMINI_API_KEY__: string;
+declare const __GEMINI_MODEL__: string;
+
 const getClient = () => {
   const env: any = (import.meta as any).env || {};
   const apiKey =
+    (typeof __GEMINI_API_KEY__ !== "undefined" && __GEMINI_API_KEY__) ||
     env.VITE_GEMINI_API_KEY ||
     env.VITE_API_KEY ||
     (typeof process !== "undefined" ? (process as any).env?.API_KEY : undefined);
 
   if (!apiKey) {
-    throw new Error("Missing Gemini API key. Set VITE_GEMINI_API_KEY in .env.local and restart the dev server.");
+    throw new Error("Missing Gemini API key. Set VITE_GEMINI_API_KEY in your Vercel project env vars (or .env.local for local dev) and redeploy.");
   }
 
-  const model = env.VITE_GEMINI_MODEL || "gemini-flash-latest";
+  const model =
+    (typeof __GEMINI_MODEL__ !== "undefined" && __GEMINI_MODEL__) ||
+    env.VITE_GEMINI_MODEL ||
+    "gemini-flash-latest";
   return { ai: new GoogleGenAI({ apiKey }), model };
 };
 
