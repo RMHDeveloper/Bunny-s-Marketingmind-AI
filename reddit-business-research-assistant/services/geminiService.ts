@@ -1,33 +1,28 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
 import { RedditAnalysis, GroundingSource, MarketingAssets } from "../types";
 
 /* -------------------------------------------------------------------------- */
 /*  Client                                                                     */
 /* -------------------------------------------------------------------------- */
 
-// Injected by Vite's `define` at build time (see vite.config.ts).
-declare const __GEMINI_API_KEY__: string;
-declare const __GEMINI_MODEL__: string;
+// The Gemini call and its API key now live server-side, proxied through the
+// shared dashboard proxy (see api/proxy.ts) - calling Gemini directly from the
+// browser used to ship the API key in the public JS bundle.
+const API_ROUTE = "/api/proxy";
 
-const getClient = () => {
-  const env: any = (import.meta as any).env || {};
-  const apiKey =
-    (typeof __GEMINI_API_KEY__ !== "undefined" && __GEMINI_API_KEY__) ||
-    env.VITE_GEMINI_API_KEY ||
-    env.VITE_API_KEY ||
-    (typeof process !== "undefined" ? (process as any).env?.API_KEY : undefined);
-
-  if (!apiKey) {
-    throw new Error("Missing Gemini API key. Set VITE_GEMINI_API_KEY in your Vercel project env vars (or .env.local for local dev) and redeploy.");
+/** POST a Gemini REST generateContent body to this app's own /api/proxy route. */
+async function callProxy(body: Record<string, unknown>): Promise<any> {
+  const response = await fetch(API_ROUTE, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(`Gemini request failed with status ${response.status}: ${errorText}`);
   }
-
-  const model =
-    (typeof __GEMINI_MODEL__ !== "undefined" && __GEMINI_MODEL__) ||
-    env.VITE_GEMINI_MODEL ||
-    "gemini-flash-latest";
-  return { ai: new GoogleGenAI({ apiKey }), model };
-};
+  return response.json();
+}
 
 /* -------------------------------------------------------------------------- */
 /*  Research prompt + parser                                                   */
@@ -156,51 +151,29 @@ const extractSources = (chunk: any): GroundingSource[] => {
 };
 
 /**
- * Run the market research request with streaming. `onUpdate` fires on every
- * chunk with a freshly re-parsed (partial) analysis so the UI can fill in
- * live. Resolves with the final analysis.
+ * Run the market research request. Streaming now happens server-side through
+ * the shared dashboard proxy (which returns a single raw JSON response), so
+ * this resolves in one shot and fires `onUpdate` once with the final result
+ * rather than incrementally.
  */
 export const analyzeMarketTopicStream = async (
   topic: string,
   country: string,
   onUpdate?: AnalysisUpdate
 ): Promise<RedditAnalysis> => {
-  const { ai, model } = getClient();
-
-  let stream: AsyncIterable<any>;
+  let data: any;
   try {
-    stream = await ai.models.generateContentStream({
-      model,
-      contents: RESEARCH_PROMPT(topic, country),
-      config: { tools: [{ googleSearch: {} }] },
+    data = await callProxy({
+      contents: [{ role: "user", parts: [{ text: RESEARCH_PROMPT(topic, country) }] }],
+      generationConfig: {},
+      tools: [{ googleSearch: {} }],
     });
   } catch (err: any) {
     throw new Error(`Gemini request failed: ${err?.message || String(err)}`);
   }
 
-  let fullText = "";
-  let sources: GroundingSource[] = [];
-
-  try {
-    for await (const chunk of stream) {
-      const delta = chunk?.text || "";
-      if (delta) fullText += delta;
-
-      const chunkSources = extractSources(chunk);
-      if (chunkSources.length) sources = chunkSources;
-
-      if (delta && onUpdate) {
-        try {
-          onUpdate(parseAnalysis(fullText, sources), fullText);
-        } catch {
-          /* never let a render error kill the stream */
-        }
-      }
-    }
-  } catch (err: any) {
-    if (!fullText) throw new Error(`Gemini stream failed: ${err?.message || String(err)}`);
-    // Otherwise: use whatever we managed to receive.
-  }
+  const fullText: string = data?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text || "").join("") || "";
+  const sources: GroundingSource[] = extractSources(data);
 
   if (!fullText.trim()) {
     throw new Error("Gemini returned an empty response. Try again or switch the model in .env.local.");
@@ -220,34 +193,34 @@ export const analyzeMarketTopic = (topic: string, country: string): Promise<Redd
 /* -------------------------------------------------------------------------- */
 
 const ASSET_SCHEMA = {
-  type: Type.OBJECT,
+  type: "OBJECT",
   properties: {
-    positioning: { type: Type.STRING },
-    adHooks: { type: Type.ARRAY, items: { type: Type.STRING } },
+    positioning: { type: "STRING" },
+    adHooks: { type: "ARRAY", items: { type: "STRING" } },
     objectionRebuttals: {
-      type: Type.ARRAY,
+      type: "ARRAY",
       items: {
-        type: Type.OBJECT,
+        type: "OBJECT",
         properties: {
-          objection: { type: Type.STRING },
-          rebuttal: { type: Type.STRING },
+          objection: { type: "STRING" },
+          rebuttal: { type: "STRING" },
         },
         required: ["objection", "rebuttal"],
       },
     },
     landingPage: {
-      type: Type.ARRAY,
+      type: "ARRAY",
       items: {
-        type: Type.OBJECT,
+        type: "OBJECT",
         properties: {
-          headline: { type: Type.STRING },
-          subhead: { type: Type.STRING },
+          headline: { type: "STRING" },
+          subhead: { type: "STRING" },
         },
         required: ["headline", "subhead"],
       },
     },
-    coldOpeners: { type: Type.ARRAY, items: { type: Type.STRING } },
-    contentIdeas: { type: Type.ARRAY, items: { type: Type.STRING } },
+    coldOpeners: { type: "ARRAY", items: { type: "STRING" } },
+    contentIdeas: { type: "ARRAY", items: { type: "STRING" } },
   },
   required: ["positioning", "adHooks", "objectionRebuttals", "landingPage", "coldOpeners", "contentIdeas"],
 };
@@ -263,8 +236,6 @@ export const generateMarketingAssets = async (
   country: string,
   analysis: RedditAnalysis
 ): Promise<MarketingAssets> => {
-  const { ai, model } = getClient();
-
   const context = `TOPIC: ${topic}
 MARKET: ${country}
 
@@ -298,12 +269,11 @@ Rules:
 - coldOpeners: exactly 3 opening lines for a cold email or DM, each referencing a real pain point or buying signal.
 - contentIdeas: exactly 6 content or SEO ideas mapped to buyer intent.`;
 
-  let response: any;
+  let data: any;
   try {
-    response = await ai.models.generateContent({
-      model,
-      contents: prompt,
-      config: {
+    data = await callProxy({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: {
         responseMimeType: "application/json",
         responseSchema: ASSET_SCHEMA,
         temperature: 0.9,
@@ -313,9 +283,11 @@ Rules:
     throw new Error(`Marketing asset generation failed: ${err?.message || String(err)}`);
   }
 
+  const text: string = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+
   let parsed: any;
   try {
-    parsed = JSON.parse((response?.text || "{}").trim());
+    parsed = JSON.parse((text || "{}").trim());
   } catch {
     throw new Error("Could not parse the marketing assets response. Try regenerating.");
   }
